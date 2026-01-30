@@ -1,8 +1,12 @@
 [package]
-name = "bgp-peering"
+name = "peering-portal"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+authors = ["ahadley1124 <admin@austinh.dev>"]
+
+[lib]
+crate-type = ["cdylib"]
 
 [dependencies]
-yew = { git = "https://github.com/yewstack/yew/", features = ["csr"] }
-yew-router = { git = "https://github.com/yewstack/yew.git" } 
+worker = { version = "0.7" }
+worker-macros = { version = "0.7" }
