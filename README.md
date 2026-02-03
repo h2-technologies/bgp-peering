@@ -23,7 +23,10 @@ The project is split into two main components:
 
 ## Features
 
-- 🔐 **PeeringDB Authentication**: Login with PeeringDB credentials
+- 🔐 **PeeringDB OAuth2 Authentication**: Secure login with PeeringDB OAuth2 and OIDC
+  - Standard OAuth2 authorization code flow
+  - OIDC support with HMAC-SHA256 ID token verification
+  - Automatic token validation and user information extraction
 - 🌍 **Location Matching**: Find common facilities between ASNs
 - 🤝 **Easy Peering Requests**: Submit peering requests where networks have common presence
 - ⚡ **Fast & Secure**: Built with Rust for both frontend and backend
