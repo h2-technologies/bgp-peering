@@ -42,9 +42,13 @@ pub fn login() -> Html {
                 Ok(response) => {
                     if response.success {
                         message.set(format!("✓ {}", response.message));
-                        // Store token in local storage or state management
-                        if let Some(_token) = response.token {
-                            // Token stored successfully
+                        // Store token in local storage
+                        if let Some(token) = response.token {
+                            if let Some(window) = web_sys::window() {
+                                if let Ok(Some(storage)) = window.local_storage() {
+                                    let _ = storage.set_item("peeringdb_token", &token);
+                                }
+                            }
                         }
                     } else {
                         message.set(format!("✗ {}", response.message));
