@@ -199,10 +199,8 @@ async fn fetch(
                         // If an ID token is present, verify it using HMAC-SHA256
                         if let Some(ref id_token) = token_response.id_token {
                             match verify_id_token(id_token) {
-                                Ok(claims) => {
+                                Ok(_claims) => {
                                     // ID token verified successfully
-                                    // You can log or use the claims here if needed
-                                    console_log!("ID token verified for user: {:?}", claims.sub);
                                 }
                                 Err(e) => {
                                     // ID token verification failed
