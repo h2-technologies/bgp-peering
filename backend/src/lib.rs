@@ -1,5 +1,8 @@
 use worker::*;
 use serde::{Deserialize, Serialize};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 mod peeringdb;
 mod location_matcher;
@@ -10,6 +13,8 @@ const OAUTH_CLIENT_SECRET: &str = "Y4DAw45XI16cQpKo97rMdWwiN7WRrCraDgIv6SXmlYrmh
 const PEERINGDB_OAUTH_AUTHORIZE: &str = "https://auth.peeringdb.com/oauth2/authorize/";
 const PEERINGDB_OAUTH_TOKEN: &str = "https://auth.peeringdb.com/oauth2/token/";
 const REDIRECT_URI: &str = "https://api.peering.austinh.dev/api/oauth/callback";
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Serialize, Deserialize)]
 struct AuthRequest {
@@ -35,6 +40,18 @@ struct PeeringDBTokenResponse {
     token_type: String,
     expires_in: u32,
     refresh_token: Option<String>,
+    id_token: Option<String>,  // OIDC ID token
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct IdTokenClaims {
+    iss: String,         // Issuer
+    sub: String,         // Subject (user ID)
+    aud: String,         // Audience (client ID)
+    exp: u64,            // Expiration time
+    iat: u64,            // Issued at
+    email: Option<String>,
+    name: Option<String>,
 }
 
 async fn exchange_code_for_token(code: &str) -> std::result::Result<PeeringDBTokenResponse, String> {
@@ -74,6 +91,55 @@ async fn exchange_code_for_token(code: &str) -> std::result::Result<PeeringDBTok
     }
 }
 
+/// Verify and decode OIDC ID token using HMAC-SHA256
+fn verify_id_token(id_token: &str) -> std::result::Result<IdTokenClaims, String> {
+    // Split the JWT into its three parts: header.payload.signature
+    let parts: Vec<&str> = id_token.split('.').collect();
+    if parts.len() != 3 {
+        return Err("Invalid JWT format".to_string());
+    }
+    
+    let header_payload = format!("{}.{}", parts[0], parts[1]);
+    let signature = parts[2];
+    
+    // Verify the signature using HMAC-SHA256 with the client secret
+    let mut mac = HmacSha256::new_from_slice(OAUTH_CLIENT_SECRET.as_bytes())
+        .map_err(|e| format!("Failed to create HMAC: {}", e))?;
+    mac.update(header_payload.as_bytes());
+    
+    // Decode the provided signature
+    let decoded_signature = URL_SAFE_NO_PAD.decode(signature)
+        .map_err(|e| format!("Failed to decode signature: {}", e))?;
+    
+    // Verify the signature
+    mac.verify_slice(&decoded_signature)
+        .map_err(|_| "Invalid signature - ID token verification failed".to_string())?;
+    
+    // Decode the payload
+    let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1])
+        .map_err(|e| format!("Failed to decode payload: {}", e))?;
+    
+    let claims: IdTokenClaims = serde_json::from_slice(&payload_bytes)
+        .map_err(|e| format!("Failed to parse claims: {}", e))?;
+    
+    // Validate the claims
+    if claims.aud != OAUTH_CLIENT_ID {
+        return Err("Invalid audience in ID token".to_string());
+    }
+    
+    // Check if token is expired (exp is in seconds since epoch)
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("System time error: {}", e))?
+        .as_secs();
+    
+    if claims.exp < current_time {
+        return Err("ID token has expired".to_string());
+    }
+    
+    Ok(claims)
+}
+
 #[derive(Serialize, Deserialize)]
 struct LocationMatchRequest {
     our_asn: u32,
@@ -107,7 +173,7 @@ async fn fetch(
         // OAuth: Get authorization URL
         .get("/api/oauth/authorize-url", |_req, _ctx| {
             let auth_url = format!(
-                "{}?client_id={}&redirect_uri={}&response_type=code&scope=profile email",
+                "{}?client_id={}&redirect_uri={}&response_type=code&scope=openid profile email",
                 PEERINGDB_OAUTH_AUTHORIZE,
                 OAUTH_CLIENT_ID,
                 urlencoding::encode(REDIRECT_URI)
@@ -130,6 +196,25 @@ async fn fetch(
                 // Exchange the authorization code for an access token
                 match exchange_code_for_token(code).await {
                     Ok(token_response) => {
+                        // If an ID token is present, verify it using HMAC-SHA256
+                        if let Some(ref id_token) = token_response.id_token {
+                            match verify_id_token(id_token) {
+                                Ok(claims) => {
+                                    // ID token verified successfully
+                                    // You can log or use the claims here if needed
+                                    console_log!("ID token verified for user: {:?}", claims.sub);
+                                }
+                                Err(e) => {
+                                    // ID token verification failed
+                                    let error_url = format!(
+                                        "https://peering.austinh.dev/#/login?error={}",
+                                        urlencoding::encode(&format!("ID token verification failed: {}", e))
+                                    );
+                                    return Response::redirect(Url::parse(&error_url)?);
+                                }
+                            }
+                        }
+                        
                         // Redirect to frontend with token in URL fragment
                         let frontend_url = format!(
                             "https://peering.austinh.dev/#/login?token={}",
