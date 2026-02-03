@@ -18,6 +18,11 @@ pub struct AuthResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+pub struct OAuthUrlResponse {
+    pub authorization_url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct LocationMatchRequest {
     pub our_asn: u32,
     pub requester_asn: u32,
@@ -36,6 +41,22 @@ pub struct LocationMatchResponse {
     pub matches: Vec<LocationMatch>,
     pub our_locations: Vec<String>,
     pub requester_locations: Vec<String>,
+}
+
+pub async fn get_oauth_url() -> Result<OAuthUrlResponse, String> {
+    let response = Request::get(&format!("{}/oauth/authorize-url", API_BASE))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send request: {}", e))?;
+    
+    if response.ok() {
+        response
+            .json::<OAuthUrlResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))
+    } else {
+        Err(format!("Failed to get OAuth URL with status: {}", response.status()))
+    }
 }
 
 pub async fn authenticate(username: String, password: String) -> Result<AuthResponse, String> {
