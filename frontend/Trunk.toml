@@ -1,0 +1,4 @@
+[[hooks]]
+stage = "build"
+command = "cp"
+command_arguments = ["styles.css", "dist/"]

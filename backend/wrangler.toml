@@ -1,4 +1,4 @@
-name = "peering-portal"
+name = "peering-portal-backend"
 main = "build/index.js"
 compatibility_date = "2026-01-29"
 
