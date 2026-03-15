@@ -1,0 +1,7 @@
+[package]
+name = "logger-gui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+logger-core = { path = "../logger-core" }
