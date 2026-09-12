@@ -1,0 +1,30 @@
+[package]
+name = "backend"
+description = "Rocket server: PeeringDB OIDC login, overlap lookup, peering request queue."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "bgp-peering"
+path = "src/main.rs"
+
+[dependencies]
+shared.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+rocket = { version = "0.5.1", features = ["json", "secrets"] }
+surrealdb = { version = "3.2.4", features = ["kv-surrealkv"] }
+oauth2 = { version = "5.0.0", default-features = false, features = ["rustls-tls"] }
+# Pinned to 0.12 deliberately: oauth2 5.0 implements its async HTTP client
+# trait for reqwest ^0.12, so a 0.13 client here would not satisfy it and we
+# would end up compiling two TLS stacks.
+# native-roots rather than the bundled Mozilla set so an operator-managed
+# trust store (a corporate egress proxy, an internal CA) is honoured, and
+# system-proxy so HTTP(S)_PROXY is respected.
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls-native-roots", "charset", "http2", "system-proxy"] }
+thiserror = "2.0"
+dotenvy = "0.15"

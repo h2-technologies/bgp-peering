@@ -1,0 +1,20 @@
+[package]
+name = "frontend"
+description = "Yew single-page app served by the Rocket backend."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+shared.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+yew = { version = "0.23", features = ["csr"] }
+yew-router = "0.20"
+gloo-net = { version = "0.7", features = ["http"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["HtmlInputElement", "HtmlSelectElement", "HtmlTextAreaElement", "Window", "Location"] }

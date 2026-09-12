@@ -1,12 +1,19 @@
-[package]
-name = "bgp-peering"
+[workspace]
+resolver = "3"
+members = ["crates/shared", "crates/backend", "crates/frontend"]
+
+# The frontend only builds for wasm32-unknown-unknown (via `trunk`), so keep it
+# out of the default set: a bare `cargo build` at the root builds the server.
+default-members = ["crates/shared", "crates/backend"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/h2-technologies/bgp-peering"
 
-members = [
-    ".",
-    "crates/logger-core",
-]
-
-[dependencies]
-logger-core = { path = "crates/logger-core" }
+[workspace.dependencies]
+shared = { path = "crates/shared" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }

@@ -1,0 +1,48 @@
+# Rocket + application configuration.
+#
+# Every key here can be overridden by an environment variable with a ROCKET_
+# prefix, which is how secrets should be supplied in production:
+#
+#   ROCKET_OIDC_CLIENT_ID=...
+#   ROCKET_OIDC_CLIENT_SECRET=...
+#   ROCKET_SECRET_KEY=$(openssl rand -base64 32)
+#   ROCKET_LOCAL_ASNS='[64500, 64501]'
+
+[default]
+address = "127.0.0.1"
+port = 8000
+
+# --- our networks -----------------------------------------------------------
+# Every ASN we operate. Overlap is computed across all of them, and PeeringDB
+# affiliation with any one of them grants access to the admin queue.
+local_asns = []
+
+# --- PeeringDB --------------------------------------------------------------
+peeringdb_api = "https://www.peeringdb.com/api"
+# Optional; raises the API rate limit well above the anonymous allowance.
+# peeringdb_api_key = ""
+
+# --- login ------------------------------------------------------------------
+# Register an application at https://www.peeringdb.com/oauth2/applications/
+# with grant type "Authorization code", client type "Confidential", and a
+# redirect URI of <public_url>/auth/callback.
+oidc_issuer = "https://auth.peeringdb.com/oauth2"
+oidc_client_id = ""
+oidc_client_secret = ""
+
+# Must match the origin browsers actually use, or the redirect URI will not
+# match the one registered with PeeringDB.
+public_url = "http://localhost:8000"
+
+# --- storage ----------------------------------------------------------------
+database_path = "data/surrealkv"
+cache_ttl_seconds = 3600
+session_ttl_hours = 168
+
+# --- frontend ---------------------------------------------------------------
+static_dir = "dist"
+
+[release]
+address = "0.0.0.0"
+# Sessions are encrypted private cookies, so a release build refuses to start
+# without a real key. Supply it as ROCKET_SECRET_KEY, never in this file.

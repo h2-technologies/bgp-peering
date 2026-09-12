@@ -1,0 +1,18 @@
+[build]
+target = "crates/frontend/index.html"
+dist = "dist"
+
+[watch]
+watch = ["crates/frontend", "crates/shared"]
+
+# `trunk serve` runs the SPA on :8080 and forwards the API and OAuth routes to
+# the Rocket server on :8000, so cookies stay same-origin during development.
+[serve]
+port = 8080
+open = false
+
+[[proxy]]
+backend = "http://127.0.0.1:8000/api"
+
+[[proxy]]
+backend = "http://127.0.0.1:8000/auth"
