@@ -60,15 +60,20 @@ impl PeeringDb {
         let rows: Vec<NetIxLan> = self
             .list("netixlan", &[("asn", asn.0.to_string())])
             .await?;
-        Ok(rows.into_iter().filter(NetIxLan::is_live).collect())
+        Ok(retain_asn(rows, "netixlan", asn, |row| row.asn, NetIxLan::is_live))
     }
 
-    /// Every facility this ASN has registered.
-    pub async fn facility_presence(&self, asn: Asn) -> Result<Vec<NetFac>> {
+    /// Every facility this network has registered.
+    ///
+    /// Filtered by `net_id` rather than `local_asn`: PeeringDB does not support
+    /// `local_asn` as a filter on `netfac` and, rather than rejecting it,
+    /// silently ignores it and returns the entire global table (tens of
+    /// thousands of rows across every network).
+    pub async fn facility_presence(&self, net: &Network) -> Result<Vec<NetFac>> {
         let rows: Vec<NetFac> = self
-            .list("netfac", &[("local_asn", asn.0.to_string())])
+            .list("netfac", &[("net_id", net.id.to_string())])
             .await?;
-        Ok(rows.into_iter().filter(NetFac::is_live).collect())
+        Ok(retain_asn(rows, "netfac", net.asn, |row| row.local_asn, NetFac::is_live))
     }
 
     /// Our own networks, for the "who we are" panel.
@@ -101,7 +106,7 @@ impl PeeringDb {
             .ok_or_else(|| Error::NotFound(format!("{peer_asn} is not registered in PeeringDB")))?;
 
         let their_ix = self.ix_presence(peer_asn).await?;
-        let their_fac = self.facility_presence(peer_asn).await?;
+        let their_fac = self.facility_presence(&peer).await?;
 
         // ix_id -> (name, our presences, their presences)
         let mut exchanges: BTreeMap<u64, IxOverlap> = BTreeMap::new();
@@ -145,7 +150,14 @@ impl PeeringDb {
                 }
             }
 
-            for row in self.facility_presence(*local).await? {
+            // Facilities are keyed on net_id, so our own net object has to be
+            // resolved first. An ASN with no PeeringDB record simply has no
+            // facility presence to compare.
+            let Some(our_net) = self.network(*local).await? else {
+                continue;
+            };
+
+            for row in self.facility_presence(&our_net).await? {
                 if let Some(entry) = facilities.get_mut(&row.fac_id) {
                     entry.our_asns.push(*local);
                 }
@@ -214,6 +226,13 @@ impl PeeringDb {
                 "PeeringDB rate limit reached; try again shortly.".to_owned(),
             ));
         }
+        // A filtered query that matches nothing answers 404, not 200 with an
+        // empty list, so a 404 here means "no rows" rather than a failure.
+        // Treating it as an error would make one unregistered ASN abort a whole
+        // multi-ASN lookup.
+        if status.as_u16() == 404 {
+            return Ok(EMPTY_LIST.to_owned());
+        }
         if !status.is_success() {
             return Err(Error::PeeringDb(format!("{url} returned HTTP {status}")));
         }
@@ -265,6 +284,40 @@ impl PeeringDb {
     }
 }
 
+/// What `get` returns for a 404, so the rest of the pipeline sees a normal
+/// empty list response.
+const EMPTY_LIST: &str = r#"{"data": []}"#;
+
+/// Keep only live rows belonging to `asn`.
+///
+/// The server-side filter should already have done this, but PeeringDB ignores
+/// filters it does not recognise instead of rejecting them, and a silently
+/// unfiltered response would otherwise read as "every network overlaps with
+/// us". Checking locally makes correctness independent of that, and a large
+/// drop is logged because it means an upstream filter stopped working.
+fn retain_asn<T>(
+    rows: Vec<T>,
+    resource: &str,
+    asn: Asn,
+    asn_of: impl Fn(&T) -> Asn,
+    is_live: impl Fn(&T) -> bool,
+) -> Vec<T> {
+    let fetched = rows.len();
+    let kept: Vec<T> = rows
+        .into_iter()
+        .filter(|row| is_live(row) && asn_of(row) == asn)
+        .collect();
+
+    if fetched > kept.len().saturating_mul(2) && fetched > 100 {
+        rocket::warn!(
+            "{resource} query for {asn} returned {fetched} rows but only {} match;              the upstream filter may no longer be applied",
+            kept.len()
+        );
+    }
+
+    kept
+}
+
 fn presence(row: &NetIxLan) -> IxPresence {
     IxPresence {
         asn: row.asn,
@@ -282,4 +335,126 @@ fn cache_key(resource: &str, params: &[(&str, String)]) -> String {
         .map(|(name, value)| format!("{name}={value}"))
         .collect();
     format!("{resource}?{}", query.join("&"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct Row {
+        asn: Asn,
+        live: bool,
+    }
+
+    fn rows(specs: &[(u32, bool)]) -> Vec<Row> {
+        specs
+            .iter()
+            .map(|(asn, live)| Row {
+                asn: Asn(*asn),
+                live: *live,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn retain_asn_keeps_only_live_rows_for_the_asn() {
+        let kept = retain_asn(
+            rows(&[(64500, true), (64501, true), (64500, false), (64500, true)]),
+            "netfac",
+            Asn(64500),
+            |row| row.asn,
+            |row| row.live,
+        );
+
+        assert_eq!(kept, rows(&[(64500, true), (64500, true)]));
+    }
+
+    /// The failure this guard exists for: PeeringDB ignoring a filter and
+    /// answering with the whole table instead of one network's rows.
+    #[test]
+    fn retain_asn_survives_an_unfiltered_response() {
+        let mut all: Vec<Row> = (1..=500).map(|asn| Row { asn: Asn(asn), live: true }).collect();
+        all.push(Row { asn: Asn(64500), live: true });
+
+        let kept = retain_asn(all, "netfac", Asn(64500), |row| row.asn, |row| row.live);
+
+        assert_eq!(kept, rows(&[(64500, true)]));
+    }
+
+    #[test]
+    fn cache_keys_distinguish_resources_and_filters() {
+        assert_ne!(
+            cache_key("netfac", &[("net_id", "1".to_owned())]),
+            cache_key("netixlan", &[("net_id", "1".to_owned())])
+        );
+        assert_ne!(
+            cache_key("netfac", &[("net_id", "1".to_owned())]),
+            cache_key("netfac", &[("net_id", "2".to_owned())])
+        );
+    }
+
+    /// Live check against the real PeeringDB API. Ignored by default because it
+    /// needs network access and is subject to upstream rate limits; run with
+    ///
+    ///     cargo test -p backend -- --ignored --nocapture
+    ///
+    /// It exists because the `netfac` filter bug was invisible to every offline
+    /// test: PeeringDB answered 200 with plausible-looking JSON, just for every
+    /// network on the planet rather than the one asked for.
+    #[rocket::async_test]
+    #[ignore]
+    async fn facility_presence_is_actually_filtered() {
+        let dir = std::env::temp_dir().join(format!(
+            "bgp-peering-live-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let config = AppConfig {
+            local_asns: vec![13335],
+            peeringdb_api: "https://www.peeringdb.com/api".to_owned(),
+            peeringdb_api_key: None,
+            oidc_issuer: "https://auth.peeringdb.com/oauth2".to_owned(),
+            oidc_client_id: String::new(),
+            oidc_client_secret: String::new(),
+            public_url: "http://localhost:8000".to_owned(),
+            database_path: dir.clone(),
+            cache_ttl_seconds: 3600,
+            session_ttl_hours: 24,
+            static_dir: "dist".into(),
+        };
+
+        let db = crate::db::connect(&config.database_path).await.unwrap();
+        let pdb = PeeringDb::new(&config, db).unwrap();
+
+        let cloudflare = pdb
+            .network(Asn(13335))
+            .await
+            .unwrap()
+            .expect("AS13335 is registered in PeeringDB");
+
+        let facilities = pdb.facility_presence(&cloudflare).await.unwrap();
+
+        assert!(!facilities.is_empty(), "AS13335 has facility presence");
+        assert!(
+            facilities.iter().all(|row| row.local_asn == Asn(13335)),
+            "every row must belong to the network we asked about"
+        );
+        // The unfiltered table is tens of thousands of rows; no single network
+        // is remotely that large.
+        assert!(
+            facilities.len() < 5_000,
+            "got {} rows, which suggests the filter was ignored",
+            facilities.len()
+        );
+
+        // An ASN with no PeeringDB record must read as absent, not as an error:
+        // PeeringDB answers such a query with 404.
+        assert!(pdb.network(Asn(17290)).await.unwrap().is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

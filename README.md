@@ -72,7 +72,7 @@ startup.
 
 | Setting                | Environment variable          | Notes                                                    |
 | ---------------------- | ----------------------------- | -------------------------------------------------------- |
-| `local_asns`           | `ROCKET_LOCAL_ASNS`           | **Required.** TOML/JSON array, e.g. `[64500, 64501]`      |
+| `local_asns`           | `ROCKET_LOCAL_ASNS`           | **Required.** TOML/JSON array, e.g. `[17290, 40419, 40064]` |
 | `oidc_client_id`       | `ROCKET_OIDC_CLIENT_ID`       | From the PeeringDB application                            |
 | `oidc_client_secret`   | `ROCKET_OIDC_CLIENT_SECRET`   | From the PeeringDB application                            |
 | `public_url`           | `ROCKET_PUBLIC_URL`           | Origin browsers use; drives the redirect URI              |
@@ -108,7 +108,7 @@ For a production-shaped run, build the bundle and let Rocket serve it:
 trunk build --release
 ROCKET_PROFILE=release \
 ROCKET_SECRET_KEY="$(openssl rand -base64 32)" \
-ROCKET_LOCAL_ASNS='[64500]' \
+ROCKET_LOCAL_ASNS='[17290, 40419, 40064]' \
 ROCKET_PUBLIC_URL='https://peering.example.net' \
   cargo run --release -p backend
 ```

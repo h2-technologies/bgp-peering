@@ -6,7 +6,7 @@
 #   ROCKET_OIDC_CLIENT_ID=...
 #   ROCKET_OIDC_CLIENT_SECRET=...
 #   ROCKET_SECRET_KEY=$(openssl rand -base64 32)
-#   ROCKET_LOCAL_ASNS='[64500, 64501]'
+#   ROCKET_LOCAL_ASNS='[17290, 40419, 40064]'
 
 [default]
 address = "127.0.0.1"
@@ -15,7 +15,10 @@ port = 8000
 # --- our networks -----------------------------------------------------------
 # Every ASN we operate. Overlap is computed across all of them, and PeeringDB
 # affiliation with any one of them grants access to the admin queue.
-local_asns = []
+#   17290 H2 Technologies LLC
+#   40419 H2 Technologies Gov
+#   40064 Amateur-IX
+local_asns = [17290, 40419, 40064]
 
 # --- PeeringDB --------------------------------------------------------------
 peeringdb_api = "https://www.peeringdb.com/api"
